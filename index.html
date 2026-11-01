@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>عين الرافدين</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="banner" class="banner lv0" role="status" aria-live="polite">
+    <strong id="banner-title">جاري تحميل البيانات…</strong>
+    <span id="banner-sub"></span>
+    <div id="counts" class="counts"></div>
+  </section>
+
+  <div id="stage">
+    <div id="map" aria-label="الخريطة"></div>
+
+    <div class="brand panel">
+      <!-- الشعار الرسمي: ضع ملفك باسم logo.png (أو jpg أو webp أو svg) بجانب index.html وسيظهر تلقائياً -->
+      <img id="logo" alt="الشعار">
+      <div><b id="app-name"></b><small id="app-tagline"></small></div>
+    </div>
+
+    <form id="search" class="panel" role="search">
+      <input id="q" type="search" placeholder="ابحث عن مدينة أو منطقة" aria-label="بحث">
+      <button type="submit">بحث</button>
+    </form>
+
+    <div class="tools">
+      <button type="button" id="btn-cities" class="panel">المحافظات</button>
+      <button type="button" id="btn-settings" class="panel" aria-label="إعدادات الخريطة">إعدادات</button>
+    </div>
+
+    <nav id="rail" class="panel" aria-label="المتغيرات"></nav>
+
+    <aside id="drawer" class="panel" hidden>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="cities" aria-selected="true">المحافظات</button>
+        <button type="button" role="tab" data-tab="alerts" aria-selected="false">التنبيهات</button>
+      </div>
+      <div id="tab-cities" class="pane">
+        <p class="hint">المستوى يجمع جودة الهواء وقراءات الأقمار والحرائق الجديدة. اضغط على محافظة لرؤية التفاصيل.</p>
+        <div id="scale" class="scale"></div>
+        <ul id="list-cities" class="cards"></ul>
+      </div>
+      <div id="tab-alerts" class="pane" hidden>
+        <h2>قراءات غازات عالية</h2>
+        <ul id="list-alerts" class="list"></ul>
+        <h2>حرائق جديدة</h2>
+        <ul id="list-fires" class="list"></ul>
+        <div class="export">
+          <a href="data/fires.geojson" download>تنزيل GeoJSON</a>
+          <button type="button" id="csv">تنزيل CSV</button>
+        </div>
+      </div>
+      <p class="note">أداة دعم قرار تعتمد على أقمار صناعية ونماذج جوية وليست نظام إنذار رسمياً. القمر لا يكشف التسربات الصغيرة، وأي مستوى عالٍ يحتاج تحققاً ميدانياً.</p>
+    </aside>
+
+    <div id="settings" class="panel" hidden>
+      <h2>شكل الخريطة</h2>
+      <label><input type="radio" name="base" value="light" checked> فاتحة</label>
+      <label><input type="radio" name="base" value="dark"> داكنة</label>
+      <label><input type="radio" name="base" value="esri"> صورة قمر صناعي</label>
+      <label><input type="radio" name="base" value="gibs"> صورة NASA لأمس</label>
+      <h2>إظهار</h2>
+      <label><input type="checkbox" id="s-cities"> دوائر حالة المحافظات</label>
+      <label><input type="checkbox" id="s-flares" checked> مشاعل ومصادر حرارة ثابتة</label>
+      <label class="opacity">قوة اللون <input type="range" id="opacity" min="0.2" max="1" step="0.05" value="0.8"></label>
+    </div>
+
+    <div id="legend" class="panel"></div>
+    <div id="timebar" class="panel"></div>
+    <div id="readout" hidden></div>
+    <div id="toast" hidden></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="variables.js"></script>
+  <script src="map-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
