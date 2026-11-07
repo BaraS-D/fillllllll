@@ -14,6 +14,10 @@
   <section id="banner" class="banner lv0" role="status" aria-live="polite">
     <strong id="banner-title">جاري تحميل البيانات…</strong>
     <span id="banner-sub"></span>
+    <div class="data-updated" aria-label="تاريخ اليوم وآخر تحديث للبيانات">
+      <span>التاريخ: <time id="today-date"></time></span>
+      <span>آخر تحديث للبيانات: <time id="last-updated">جارٍ التحميل…</time></span>
+    </div>
     <div id="counts" class="counts"></div>
   </section>
 
@@ -34,6 +38,10 @@
     <div class="tools">
       <button type="button" id="btn-cities" class="panel">المحافظات</button>
       <button type="button" id="btn-settings" class="panel" aria-label="إعدادات الخريطة">إعدادات</button>
+      <label class="gas-control panel" for="gas-select">
+        <span>الغازات</span>
+        <select id="gas-select" aria-label="اختر طبقة الغاز"></select>
+      </label>
     </div>
 
     <nav id="rail" class="panel" aria-label="المتغيرات"></nav>
@@ -66,7 +74,7 @@
       <label><input type="radio" name="base" value="light" checked> فاتحة</label>
       <label><input type="radio" name="base" value="dark"> داكنة</label>
       <label><input type="radio" name="base" value="esri"> صورة قمر صناعي</label>
-      <label><input type="radio" name="base" value="gibs"> صورة NASA لأمس</label>
+      <label><input type="radio" name="base" value="gibs"> صورة NASA (الأحدث)</label>
       <h2>إظهار</h2>
       <label><input type="checkbox" id="s-cities"> دوائر حالة المحافظات</label>
       <label><input type="checkbox" id="s-flares" checked> مشاعل ومصادر حرارة ثابتة</label>

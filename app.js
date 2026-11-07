@@ -3,6 +3,7 @@
 const $ = (s) => document.querySelector(s);
 const TZ = 'Asia/Baghdad';
 const fmtTime = (d) => new Intl.DateTimeFormat('ar-IQ', { timeZone: TZ, dateStyle: 'medium', timeStyle: 'short' }).format(d);
+const fmtDate = (d) => new Intl.DateTimeFormat('ar-IQ', { timeZone: TZ, dateStyle: 'full' }).format(d);
 const bust = () => '?_=' + Date.now();
 const getJSON = (u, ext) => fetch(ext ? u : u + bust()).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const num = (v) => {
@@ -48,6 +49,23 @@ const km = (a, b) => {
 const meterHTML = (l) => `<div class="meter" role="img" aria-label="المستوى ${LEVELS[l].name}">` +
   [0, 1, 2, 3].map((i) => `<i class="${i <= l ? 'on lv' + i : ''}"></i>`).join('') + '</div>';
 
+function renderDataUpdate(sources) {
+  $('#today-date').textContent = fmtDate(new Date());
+  const timestamps = sources
+    .map((source) => source && Date.parse(source.updated))
+    .filter((timestamp) => Number.isFinite(timestamp));
+  const latest = Math.max(...timestamps);
+  const stamp = $('#last-updated');
+  if (!Number.isFinite(latest)) {
+    stamp.textContent = 'غير متوفر';
+    stamp.removeAttribute('datetime');
+    return;
+  }
+  const updated = new Date(latest);
+  stamp.dateTime = updated.toISOString();
+  stamp.textContent = fmtTime(updated);
+}
+
 // ---------- الخريطة ----------
 const IRAQ_BOUNDS = [[29.0, 38.7], [37.4, 48.8]];
 const map = L.map('map', { zoomControl: false }).fitBounds(IRAQ_BOUNDS, { paddingTopLeft: [10, 60], paddingBottomRight: [90, 130] });
@@ -71,14 +89,60 @@ const makeBaseLayer = (id) => {
   if (id === 'light') return MAPTILER_KEY ? maptiler('dataviz-light') : carto('light_all');
   if (id === 'dark') return MAPTILER_KEY ? maptiler('dataviz-dark') : carto('dark_all');
   if (id === 'esri') return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18, attribution: 'Esri, Maxar' });
-  return L.tileLayer('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/' +
-    new Date(Date.now() - 864e5).toISOString().slice(0, 10) + '/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg', { maxZoom: 9, attribution: 'NASA GIBS' });
+  return carto('light_all');
 };
+const gibsTileURL = (date, z, y, x) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${date}/GoogleMapsCompatible_Level9/${z}/${y}/${x}.jpg`;
+function probeGibsDate(date) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    const timeout = setTimeout(() => { image.src = ''; resolve(false); }, 8000);
+    image.onload = () => { clearTimeout(timeout); resolve(true); };
+    image.onerror = () => { clearTimeout(timeout); resolve(false); };
+    image.src = gibsTileURL(date, 5, 12, 19);
+  });
+}
+async function latestGibsDate() {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  for (let offset = 0; offset <= 30; offset += 7) {
+    const dates = Array.from({ length: Math.min(7, 31 - offset) }, (_, i) => {
+      const date = new Date(today);
+      date.setUTCDate(date.getUTCDate() - offset - i);
+      return date.toISOString().slice(0, 10);
+    });
+    const available = await Promise.all(dates.map(probeGibsDate));
+    const index = available.findIndex(Boolean);
+    if (index !== -1) return dates[index];
+  }
+  return null;
+}
+const makeGibsLayer = (date) => L.tileLayer(
+  `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
+  { maxZoom: 9, attribution: 'NASA GIBS' },
+);
 let currentBaseId = 'light';
 let currentBase = makeBaseLayer(currentBaseId).addTo(map);
+let baseSwitchToken = 0;
 function switchBase(id) {
+  const token = ++baseSwitchToken;
   map.removeLayer(currentBase);
   currentBaseId = id;
+  if (id === 'gibs') {
+    currentBase = makeBaseLayer('light').addTo(map);
+    currentBase.bringToBack();
+    latestGibsDate().then((date) => {
+      if (token !== baseSwitchToken || currentBaseId !== 'gibs') return;
+      if (!date) {
+        toast('تعذر العثور على صورة NASA متاحة خلال آخر 31 يوماً.');
+        return;
+      }
+      map.removeLayer(currentBase);
+      currentBase = makeGibsLayer(date).addTo(map);
+      currentBase.bringToBack();
+      toast(`أحدث صورة NASA متاحة: ${date}`);
+    });
+    return;
+  }
   currentBase = makeBaseLayer(id).addTo(map);
   currentBase.bringToBack();
 }
@@ -434,9 +498,10 @@ function activate(id) {
     } else toast('لا توجد بيانات لهذا المتغير بعد. شغّل سحب البيانات (fetch_grid.py).');
   }
   if (d.kind === 'sat') {
+    $('#gas-select').value = d.id;
     const m = meta && meta.layers[d.sat];
     if (m) { overlay = L.imageOverlay(`data/s5p/${m.file}${bust()}`, meta.bounds, { opacity, interactive: false }).addTo(map); drawHot(d.sat); }
-    else toast('لا توجد قراءات أقمار لهذا الغاز بعد. شغّل fetch_s5p.py.');
+    else toast('لا توجد بيانات لهذا الغاز؛ أضف CDSE_CLIENT_ID وCDSE_CLIENT_SECRET إلى .env ثم شغّل fetch_s5p.py.');
   }
   renderLegend(); renderTimebar();
   focusLayer(d);
@@ -445,7 +510,14 @@ function activate(id) {
 // ---------- الواجهة ----------
 function buildRail() {
   const rail = $('#rail'); let grp = null;
+  const gasSelect = $('#gas-select');
+  VARIABLES.filter((v) => v.kind === 'sat').forEach((v) => {
+    const option = document.createElement('option');
+    option.value = v.id; option.textContent = v.label;
+    gasSelect.appendChild(option);
+  });
   VARIABLES.forEach((v) => {
+    if (v.kind === 'sat') return;
     if (grp !== null && v.group !== grp) rail.insertAdjacentHTML('beforeend', '<div class="rg"></div>');
     grp = v.group;
     const b = document.createElement('button');
@@ -457,6 +529,7 @@ function buildRail() {
   });
 }
 buildRail();
+$('#gas-select').onchange = (e) => activate(e.target.value);
 $('#scale').innerHTML = LEVELS.map((l, i) => `<span class="lv${i}">${l.name}</span>`).join('');
 $('#btn-cities').onclick = () => { $('#drawer').hidden = !$('#drawer').hidden; $('#settings').hidden = true; };
 $('#btn-settings').onclick = () => { $('#settings').hidden = !$('#settings').hidden; $('#drawer').hidden = true; };
@@ -488,6 +561,7 @@ async function load() {
     getJSON('data/cities.json'), getJSON('data/fires.geojson'), getJSON('data/s5p/status.json'), getJSON('data/s5p/meta.json'),
     getJSON('data/s5p/alerts.json'), getJSON('data/air.json'), getJSON('data/grid.json'), getJSON('data/s5p/values.json'),
   ]);
+  renderDataUpdate([geo, st, mt, ai, gr]);
   cities = cs || []; sat = st; air = ai; alerts = al || []; satVals = sv;
   grid = gr && gr.vars && Object.keys(gr.vars).length ? gr : null;
   meta = mt && mt.layers && Object.keys(mt.layers).length ? mt : null;
@@ -498,6 +572,8 @@ async function load() {
     const missing = (v.kind === 'grid' && !(grid && grid.vars[v.grid])) || (v.kind === 'sat' && !(meta && meta.layers[v.sat])) || (v.kind === 'fires' && geoState === 'missing');
     b.classList.toggle('nodata', missing);
   });
-  activate(active ? active.id : 'status');
+  const firstAvailableGas = VARIABLES.find((v) => v.kind === 'sat' && meta && meta.layers[v.sat]);
+  const defaultGas = firstAvailableGas || VARIABLES.find((v) => v.kind === 'sat');
+  activate(defaultGas.id);
 }
 load();
