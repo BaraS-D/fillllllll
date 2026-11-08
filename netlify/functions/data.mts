@@ -82,8 +82,12 @@ export default async (req: Request) => {
     const data = name==='cities'?cities():name==='fires'?await fires():name==='grid'?await weather(false):name==='air'?await weather(true):name==='satellite'?await satellite():null;
     if (!data) return new Response(null,{status:404});
     return Response.json(data,{headers:{'Cache-Control':'public, max-age=300','Netlify-CDN-Cache-Control':'public, s-maxage=1800'}});
-  } catch {
-    return Response.json({error:'تعذر جلب البيانات من المصدر. تحقق من إعدادات الخدمة وأعد المحاولة.'},{status:502});
+  } catch (error) {
+    const configuration = error instanceof Error && error.message === 'configuration';
+    return Response.json({
+      code: configuration ? 'configuration' : 'upstream',
+      error: configuration ? 'إعدادات مصدر البيانات غير مكتملة على الخادم.' : 'تعذر جلب البيانات من المصدر حالياً.',
+    },{status:configuration ? 503 : 502,headers:{'Cache-Control':'no-store','Netlify-CDN-Cache-Control':'no-store'}});
   }
 };
 export const config = {path:'/api/data/:source'};

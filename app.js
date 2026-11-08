@@ -5,7 +5,28 @@ const TZ = 'Asia/Baghdad';
 const fmtTime = (d) => new Intl.DateTimeFormat('ar-IQ', { timeZone: TZ, dateStyle: 'medium', timeStyle: 'short' }).format(d);
 const fmtDate = (d) => new Intl.DateTimeFormat('ar-IQ', { timeZone: TZ, dateStyle: 'full' }).format(d);
 const bust = () => '?_=' + Date.now();
-const getJSON = (u, ext) => fetch(ext ? u : u + bust()).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+const dataErrors = new Map();
+async function getJSON(u, ext) {
+  try {
+    const response = await fetch(ext ? u : u + bust(), { signal: AbortSignal.timeout(55000) });
+    const jsonResponse = (response.headers.get('content-type') || '').includes('json');
+    if (!response.ok || !jsonResponse) {
+      let code = response.status === 404 || !jsonResponse ? 'deployment' : 'upstream';
+      if (jsonResponse) {
+        const error = await response.json();
+        if (error.code === 'configuration') code = 'configuration';
+      }
+      if (u.startsWith('/api/data/')) dataErrors.set(u, code);
+      return null;
+    }
+    const data = await response.json();
+    dataErrors.delete(u);
+    return data;
+  } catch {
+    if (u.startsWith('/api/data/')) dataErrors.set(u, 'connection');
+    return null;
+  }
+}
 const num = (v) => {
   const d = Math.abs(v) >= 100 ? 0 : Math.abs(v) >= 10 ? 1 : 2;
   return (Math.round(v * 10 ** d) / 10 ** d).toLocaleString('en-US');
@@ -598,6 +619,15 @@ async function load() {
   const defaultGas = firstAvailableGas || VARIABLES.find((v) => v.kind === 'sat');
   activate(firstAvailableGas ? defaultGas.id : grid ? 'aqi' : geo ? 'fires' : 'status');
   const missing = [!geo && 'الحرائق', !ai && 'جودة الهواء', !gr && 'الطقس', !mt && 'الغازات'].filter(Boolean);
-  if (missing.length) toast('تعذر جلب: ' + missing.join('، ') + '. أعد تحميل الصفحة للمحاولة مجدداً.');
+  if (missing.length) {
+    const codes = [...dataErrors.values()];
+    const explanation = codes.includes('deployment')
+      ? 'خدمة البيانات غير متاحة في هذه النسخة المنشورة. يلزم نشر الواجهة ووظائف الخادم معاً.'
+      : codes.includes('configuration')
+        ? 'إعدادات خدمة البيانات غير مكتملة في نسخة الاستضافة.'
+        : 'تعذر الاتصال بمصدر البيانات حالياً. أعد تحميل الصفحة للمحاولة مجدداً.';
+    $('#banner-sub').textContent = 'تعذر جلب: ' + missing.join('، ') + '. ' + explanation;
+    toast(explanation);
+  }
 }
 load();
