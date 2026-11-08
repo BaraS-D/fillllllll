@@ -5,7 +5,28 @@ const TZ = 'Asia/Baghdad';
 const fmtTime = (d) => new Intl.DateTimeFormat('ar-IQ', { timeZone: TZ, dateStyle: 'medium', timeStyle: 'short' }).format(d);
 const fmtDate = (d) => new Intl.DateTimeFormat('ar-IQ', { timeZone: TZ, dateStyle: 'full' }).format(d);
 const bust = () => '?_=' + Date.now();
-const getJSON = (u, ext) => fetch(ext ? u : u + bust()).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+const dataErrors = new Map();
+async function getJSON(u, ext) {
+  try {
+    const response = await fetch(ext ? u : u + bust(), { signal: AbortSignal.timeout(55000) });
+    const jsonResponse = (response.headers.get('content-type') || '').includes('json');
+    if (!response.ok || !jsonResponse) {
+      let code = response.status === 404 || !jsonResponse ? 'deployment' : 'upstream';
+      if (jsonResponse) {
+        const error = await response.json();
+        if (error.code === 'configuration') code = 'configuration';
+      }
+      if (u.startsWith('/api/data/')) dataErrors.set(u, code);
+      return null;
+    }
+    const data = await response.json();
+    dataErrors.delete(u);
+    return data;
+  } catch {
+    if (u.startsWith('/api/data/')) dataErrors.set(u, 'connection');
+    return null;
+  }
+}
 const num = (v) => {
   const d = Math.abs(v) >= 100 ? 0 : Math.abs(v) >= 10 ? 1 : 2;
   return (Math.round(v * 10 ** d) / 10 ** d).toLocaleString('en-US');
@@ -71,10 +92,9 @@ const IRAQ_BOUNDS = [[29.0, 38.7], [37.4, 48.8]];
 const map = L.map('map', { zoomControl: false }).fitBounds(IRAQ_BOUNDS, { paddingTopLeft: [10, 60], paddingBottomRight: [90, 130] });
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
 const carto = (n) => L.tileLayer(`https://{s}.basemaps.cartocdn.com/${n}/{z}/{x}/{y}{r}.png`, { maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap © CARTO' });
-const MAPTILER_KEY = window.MAPTILER_KEY || '';
 const maptiler = (style) => {
   const layer = L.tileLayer(
-    `https://api.maptiler.com/maps/${style}/{z}/{x}/{y}.png?key=${encodeURIComponent(MAPTILER_KEY)}`,
+    `/api/tiles/${style}/{z}/{x}/{y}`,
     { maxZoom: 19, attribution: '© MapTiler © OpenStreetMap contributors' },
   );
   let errorShown = false;
@@ -86,8 +106,8 @@ const maptiler = (style) => {
   return layer;
 };
 const makeBaseLayer = (id) => {
-  if (id === 'light') return MAPTILER_KEY ? maptiler('dataviz-light') : carto('light_all');
-  if (id === 'dark') return MAPTILER_KEY ? maptiler('dataviz-dark') : carto('dark_all');
+  if (id === 'light') return maptiler('dataviz-light');
+  if (id === 'dark') return maptiler('dataviz-dark');
   if (id === 'esri') return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18, attribution: 'Esri, Maxar' });
   return carto('light_all');
 };
@@ -390,7 +410,7 @@ function alertInfo(a, ll) {
 }
 function renderAlertList() {
   const ul = $('#list-alerts');
-  ul.innerHTML = alerts.length ? '' : '<li class="empty">لا توجد قراءات بمستوى عالٍ أو خطير حالياً.</li>';
+  ul.innerHTML = alerts.length ? '' : '<li class="empty">' + (meta ? 'راجع قراءات الغازات ضمن تفاصيل كل محافظة؛ قائمة تنبيهات المواقع غير متاحة حالياً.' : 'بيانات الغازات غير متاحة حالياً.') + '</li>';
   alerts.forEach((a) => {
     const ll = L.latLng(a.lat, a.lon), li = document.createElement('li'), b = document.createElement('button');
     b.type = 'button'; b.innerHTML = `${a.label}: <b>${LEVELS[a.level].name}</b><small>قرب ${a.near} (${a.dist_km} كم)</small>`;
@@ -443,7 +463,7 @@ function renderTimebar() {
   const d = active, tb = $('#timebar');
   if (d.kind === 'fires') {
     const { n, f } = renderFireMarkers();
-    const state = geoState === 'missing' ? 'ملف الحرائق غير موجود بعد. شغّل سحب البيانات (fetch_fires.py) أو الـ workflow.'
+    const state = geoState === 'missing' ? 'تعذر الاتصال بمصدر بيانات الحرائق حالياً.'
       : geoState === 'empty' ? 'لم يرصد القمر نقاطاً حرارية ضمن حدود العراق في آخر 5 أيام.'
         : `<b>${n}</b> حريق جديد خلال آخر ${fireHours} ساعة، و<b>${f}</b> مصدر حرارة ثابت (مشاعل ومنشآت)`;
     tb.innerHTML = `<div class="row"><input type="range" id="hours" min="6" max="120" step="6" value="${fireHours}" aria-label="نافذة الزمن بالساعات"><span id="fire-msg">${state}</span></div>` +
@@ -495,13 +515,25 @@ function activate(id) {
     if (url) {
       overlay = L.imageOverlay(url, [[grid.lat1, grid.lon0], [grid.lat0, grid.lon1]], { opacity, interactive: false }).addTo(map);
       if (d.arrows) drawArrows();
-    } else toast('لا توجد بيانات لهذا المتغير بعد. شغّل سحب البيانات (fetch_grid.py).');
+    } else toast('تعذر جلب بيانات هذا المتغير حالياً. أعد تحميل الصفحة للمحاولة مجدداً.');
   }
   if (d.kind === 'sat') {
     $('#gas-select').value = d.id;
     const m = meta && meta.layers[d.sat];
-    if (m) { overlay = L.imageOverlay(`data/s5p/${m.file}${bust()}`, meta.bounds, { opacity, interactive: false }).addTo(map); drawHot(d.sat); }
-    else toast('لا توجد بيانات لهذا الغاز؛ أضف CDSE_CLIENT_ID وCDSE_CLIENT_SECRET إلى .env ثم شغّل fetch_s5p.py.');
+    if (m && satVals && satVals[d.sat]) {
+      const values = satVals[d.sat], canvas = document.createElement('canvas');
+      canvas.width = values.w; canvas.height = values.h;
+      const ctx = canvas.getContext('2d'), image = ctx.createImageData(values.w, values.h);
+      values.data.forEach((value, i) => {
+        if (value == null) return;
+        const level = satLevel(d.sat, value), color = hexRGB(LEVELS[level].color);
+        image.data.set([...color, 190], i * 4);
+      });
+      ctx.putImageData(image, 0, 0);
+      overlay = L.imageOverlay(canvas.toDataURL(), meta.bounds, { opacity, interactive: false }).addTo(map);
+      drawHot(d.sat);
+    }
+    else toast('لا تتوفر قراءات لهذا الغاز حالياً. قد تتأخر بيانات القمر أو يحجبها الغطاء السحابي.');
   }
   renderLegend(); renderTimebar();
   focusLayer(d);
@@ -557,14 +589,25 @@ $('#csv').onclick = () => {
 
 // ---------- التحميل ----------
 async function load() {
-  const [cs, geo, st, mt, al, ai, gr, sv] = await Promise.all([
-    getJSON('data/cities.json'), getJSON('data/fires.geojson'), getJSON('data/s5p/status.json'), getJSON('data/s5p/meta.json'),
-    getJSON('data/s5p/alerts.json'), getJSON('data/air.json'), getJSON('data/grid.json'), getJSON('data/s5p/values.json'),
+  const [cs, geo, satelliteData, ai, gr] = await Promise.all([
+    getJSON('/api/data/cities', true), getJSON('/api/data/fires', true),
+    getJSON('/api/data/satellite', true), getJSON('/api/data/air', true), getJSON('/api/data/grid', true),
   ]);
+  const st = null, mt = satelliteData, al = [], sv = satelliteData && satelliteData.values;
   renderDataUpdate([geo, st, mt, ai, gr]);
   cities = cs || []; sat = st; air = ai; alerts = al || []; satVals = sv;
   grid = gr && gr.vars && Object.keys(gr.vars).length ? gr : null;
   meta = mt && mt.layers && Object.keys(mt.layers).length ? mt : null;
+  if (meta && satVals) {
+    sat = { cities: {} };
+    cities.forEach(c => {
+      sat.cities[c.id] = {};
+      Object.keys(meta.layers).forEach(key => {
+        const value = satValue(key, c.lat, c.lon);
+        if (value != null) sat.cities[c.id][key] = { value, level: satLevel(key, value) };
+      });
+    });
+  }
   if (geo) renderFires(geo);
   renderAlertList(); renderCities();
   document.querySelectorAll('.rb').forEach((b) => {
@@ -574,6 +617,17 @@ async function load() {
   });
   const firstAvailableGas = VARIABLES.find((v) => v.kind === 'sat' && meta && meta.layers[v.sat]);
   const defaultGas = firstAvailableGas || VARIABLES.find((v) => v.kind === 'sat');
-  activate(defaultGas.id);
+  activate(firstAvailableGas ? defaultGas.id : grid ? 'aqi' : geo ? 'fires' : 'status');
+  const missing = [!geo && 'الحرائق', !ai && 'جودة الهواء', !gr && 'الطقس', !mt && 'الغازات'].filter(Boolean);
+  if (missing.length) {
+    const codes = [...dataErrors.values()];
+    const explanation = codes.includes('deployment')
+      ? 'خدمة البيانات غير متاحة في هذه النسخة المنشورة. يلزم نشر الواجهة ووظائف الخادم معاً.'
+      : codes.includes('configuration')
+        ? 'إعدادات خدمة البيانات غير مكتملة في نسخة الاستضافة.'
+        : 'تعذر الاتصال بمصدر البيانات حالياً. أعد تحميل الصفحة للمحاولة مجدداً.';
+    $('#banner-sub').textContent = 'تعذر جلب: ' + missing.join('، ') + '. ' + explanation;
+    toast(explanation);
+  }
 }
 load();

@@ -1,0 +1,29 @@
+{
+  "name": "repo",
+  "version": "1.0.0",
+  "description": "Iraq satellite monitoring dashboard",
+  "main": "app.js",
+  "scripts": {
+    "check": "node --check app.js && tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck netlify/functions/*.mts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BaraS-D/fillllllll.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/BaraS-D/fillllllll/issues"
+  },
+  "homepage": "https://github.com/BaraS-D/fillllllll#readme",
+  "dependencies": {
+    "@netlify/functions": "^6.1.1",
+    "geotiff": "^3.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
